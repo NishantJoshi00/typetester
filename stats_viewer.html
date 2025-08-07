@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Typing Statistics</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'IBM Plex Mono', monospace;
+            background: #000;
+            color: #fff;
+            line-height: 1.4;
+            padding: 2rem;
+            font-size: 14px;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+
+        .header {
+            margin-bottom: 2rem;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 1.5rem;
+            font-weight: 400;
+            color: #00ff00;
+            margin-bottom: 0.5rem;
+        }
+
+        .file-upload {
+            border: 1px solid #333;
+            padding: 1rem;
+            margin-bottom: 2rem;
+            text-align: center;
+            cursor: pointer;
+        }
+
+        .file-upload:hover {
+            border-color: #00ff00;
+        }
+
+        .file-input {
+            display: none;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+
+        .stat {
+            border: 1px solid #333;
+            padding: 1rem;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 1.8rem;
+            font-weight: 500;
+            margin-bottom: 0.25rem;
+        }
+
+        .stat-label {
+            font-size: 0.8rem;
+            color: #888;
+            text-transform: uppercase;
+        }
+
+        .wpm { color: #00ff00; }
+        .accuracy { color: #0088ff; }
+        .errors { color: #ff4444; }
+        .duration { color: #ffaa00; }
+
+        .section {
+            border: 1px solid #333;
+            margin-bottom: 2rem;
+        }
+
+        .section-header {
+            background: #111;
+            padding: 0.5rem 1rem;
+            border-bottom: 1px solid #333;
+            font-size: 0.9rem;
+            color: #00ff00;
+        }
+
+        .section-content {
+            padding: 1rem;
+        }
+
+        .chart-container {
+            height: 200px;
+            margin-bottom: 1rem;
+        }
+
+        .chart-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 2rem;
+        }
+
+        .error-item {
+            border-bottom: 1px solid #222;
+            padding: 0.5rem 0;
+            font-size: 0.85rem;
+        }
+
+        .error-item:last-child {
+            border-bottom: none;
+        }
+
+        .error-type {
+            color: #ff4444;
+            margin-right: 1rem;
+        }
+
+        .error-chars {
+            color: #ffaa00;
+            margin-right: 1rem;
+        }
+
+        .error-time {
+            color: #888;
+            float: right;
+        }
+
+        .weakness-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 2rem;
+        }
+
+        .weakness-item {
+            margin-bottom: 1rem;
+        }
+
+        .weakness-title {
+            color: #00ff00;
+            margin-bottom: 0.5rem;
+            font-size: 0.9rem;
+        }
+
+        .weakness-content {
+            color: #ccc;
+            font-size: 0.8rem;
+            line-height: 1.3;
+        }
+
+        .transition-item {
+            display: inline-block;
+            background: #111;
+            padding: 0.25rem 0.5rem;
+            margin: 0.25rem;
+            border: 1px solid #333;
+            font-size: 0.75rem;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        @media (max-width: 768px) {
+            .stats-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+            
+            .chart-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .weakness-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>typing-statistics</h1>
+        </div>
+
+        <div class="file-upload" onclick="document.getElementById('jsonFile').click()">
+            <input type="file" id="jsonFile" class="file-input" accept=".json">
+            [*] select typing report json file
+        </div>
+
+        <div id="statsContent" class="hidden">
+            <div class="stats-grid">
+                <div class="stat">
+                    <div class="stat-value wpm" id="wpmValue">0</div>
+                    <div class="stat-label">wpm</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-value accuracy" id="accuracyValue">0%</div>
+                    <div class="stat-label">accuracy</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-value errors" id="errorsValue">0</div>
+                    <div class="stat-label">errors</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-value duration" id="durationValue">0s</div>
+                    <div class="stat-label">duration</div>
+                </div>
+            </div>
+
+            <div class="section">
+                <div class="section-header">performance-charts</div>
+                <div class="section-content">
+                    <div class="chart-grid">
+                        <div class="chart-container">
+                            <canvas id="wpmChart"></canvas>
+                        </div>
+                        <div class="chart-container">
+                            <canvas id="keystrokeChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="section">
+                <div class="section-header">weakness-analysis</div>
+                <div class="section-content">
+                    <div class="chart-grid">
+                        <div class="chart-container">
+                            <canvas id="hesitationChart"></canvas>
+                        </div>
+                        <div class="chart-container">
+                            <canvas id="digraphChart"></canvas>
+                        </div>
+                    </div>
+                    <div id="weaknessDetails"></div>
+                </div>
+            </div>
+
+            <div class="section">
+                <div class="section-header">error-details</div>
+                <div class="section-content">
+                    <div id="errorsList"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let charts = {};
+
+        document.getElementById('jsonFile').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    try {
+                        const data = JSON.parse(e.target.result);
+                        displayStats(data);
+                    } catch (error) {
+                        alert('error parsing json: ' + error.message);
+                    }
+                };
+                reader.readAsText(file);
+            }
+        });
+
+        function displayStats(data) {
+            // Update main stats
+            document.getElementById('wpmValue').textContent = Math.round(data.wpm * 10) / 10;
+            document.getElementById('accuracyValue').textContent = Math.round(data.accuracy * 10) / 10 + '%';
+            document.getElementById('errorsValue').textContent = data.errors.length;
+            
+            const duration = data.session_duration.secs + (data.session_duration.nanos || 0) / 1000000000;
+            document.getElementById('durationValue').textContent = Math.round(duration) + 's';
+
+            // Show content
+            document.getElementById('statsContent').classList.remove('hidden');
+
+            // Create charts
+            createWpmChart(data.wpm_over_time || []);
+            createKeystrokeChart(data.key_stats);
+            if (data.hesitation_patterns) createHesitationChart(data.hesitation_patterns);
+            if (data.weakness_analysis && data.weakness_analysis.slowest_digraphs) {
+                createDigraphChart(data.weakness_analysis.slowest_digraphs);
+            }
+            
+            // Display analysis
+            if (data.weakness_analysis) displayWeaknessAnalysis(data.weakness_analysis);
+            displayErrorDetails(data.errors);
+        }
+
+        function createWpmChart(wpmData) {
+            const ctx = document.getElementById('wpmChart').getContext('2d');
+            if (charts.wpm) charts.wpm.destroy();
+
+            let labels = [];
+            let values = [];
+            
+            if (wpmData.length > 0) {
+                labels = wpmData.map((item, i) => i * 10);
+                values = wpmData.map(item => Array.isArray(item) ? item[1] : item);
+            }
+
+            charts.wpm = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        data: values,
+                        borderColor: '#00ff00',
+                        backgroundColor: 'rgba(0, 255, 0, 0.1)',
+                        fill: true,
+                        tension: 0.1,
+                        pointRadius: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: { color: '#888', font: { size: 10 } },
+                            grid: { color: '#222' },
+                            title: { display: true, text: 'wpm-over-time', color: '#888', font: { size: 10 } }
+                        },
+                        x: {
+                            ticks: { color: '#888', font: { size: 10 } },
+                            grid: { color: '#222' }
+                        }
+                    }
+                }
+            });
+        }
+
+        function createKeystrokeChart(keyStats) {
+            const ctx = document.getElementById('keystrokeChart').getContext('2d');
+            if (charts.keystroke) charts.keystroke.destroy();
+
+            const sortedKeys = Object.entries(keyStats)
+                .sort((a, b) => b[1].count - a[1].count)
+                .slice(0, 10);
+
+            charts.keystroke = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: sortedKeys.map(([key]) => key === ' ' ? 'spc' : key),
+                    datasets: [{
+                        data: sortedKeys.map(([, stats]) => stats.count),
+                        backgroundColor: '#0088ff',
+                        borderWidth: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: { color: '#888', font: { size: 10 } },
+                            grid: { color: '#222' },
+                            title: { display: true, text: 'keystroke-frequency', color: '#888', font: { size: 10 } }
+                        },
+                        x: {
+                            ticks: { color: '#888', font: { size: 10 } },
+                            grid: { color: '#222' }
+                        }
+                    }
+                }
+            });
+        }
+
+        function createHesitationChart(hesitationData) {
+            const ctx = document.getElementById('hesitationChart').getContext('2d');
+            if (charts.hesitation) charts.hesitation.destroy();
+
+            const typeCounts = {};
+            hesitationData.forEach(h => {
+                const type = h.pattern_type.toLowerCase().replace(/([A-Z])/g, '-$1');
+                typeCounts[type] = (typeCounts[type] || 0) + 1;
+            });
+
+            charts.hesitation = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: Object.keys(typeCounts),
+                    datasets: [{
+                        data: Object.values(typeCounts),
+                        backgroundColor: ['#ff4444', '#ffaa00', '#0088ff', '#aa44ff', '#44ffaa', '#ff44aa'],
+                        borderColor: '#000',
+                        borderWidth: 2
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            labels: { color: '#888', font: { size: 9 } }
+                        }
+                    }
+                }
+            });
+        }
+
+        function createDigraphChart(digraphData) {
+            const ctx = document.getElementById('digraphChart').getContext('2d');
+            if (charts.digraph) charts.digraph.destroy();
+
+            const top8 = digraphData.slice(0, 8);
+            
+            charts.digraph = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: top8.map(([digraph]) => digraph),
+                    datasets: [{
+                        data: top8.map(([, latency]) => latency),
+                        backgroundColor: top8.map(([, latency]) => 
+                            latency > 400 ? '#ff4444' : latency > 250 ? '#ffaa00' : '#0088ff'
+                        ),
+                        borderWidth: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: { 
+                                color: '#888', 
+                                font: { size: 10 },
+                                callback: v => v + 'ms'
+                            },
+                            grid: { color: '#222' },
+                            title: { display: true, text: 'slowest-digraphs', color: '#888', font: { size: 10 } }
+                        },
+                        x: {
+                            ticks: { color: '#888', font: { size: 10 } },
+                            grid: { color: '#222' }
+                        }
+                    }
+                }
+            });
+        }
+
+        function displayWeaknessAnalysis(weaknessData) {
+            const container = document.getElementById('weaknessDetails');
+            
+            let html = '<div class="weakness-grid">';
+            
+            // Error clusters
+            html += '<div class="weakness-item">';
+            html += '<div class="weakness-title">error-clusters</div>';
+            html += '<div class="weakness-content">';
+            if (weaknessData.error_clusters.length === 0) {
+                html += 'no error clustering detected';
+            } else {
+                weaknessData.error_clusters.forEach(([start, end]) => {
+                    html += `positions ${start}-${end} (${end - start + 1} chars)<br>`;
+                });
+            }
+            html += '</div></div>';
+            
+            // Rhythm breaks
+            html += '<div class="weakness-item">';
+            html += '<div class="weakness-title">rhythm-analysis</div>';
+            html += '<div class="weakness-content">';
+            if (weaknessData.rhythm_breaks.length === 0) {
+                html += 'consistent rhythm maintained';
+            } else {
+                html += `rhythm breaks at ${weaknessData.rhythm_breaks.length} positions<br>`;
+                html += `positions: ${weaknessData.rhythm_breaks.slice(0, 10).join(', ')}`;
+                if (weaknessData.rhythm_breaks.length > 10) html += '...';
+            }
+            html += '</div></div>';
+            
+            html += '</div>';
+            
+            // Problematic transitions
+            if (weaknessData.problematic_transitions && weaknessData.problematic_transitions.length > 0) {
+                html += '<div class="weakness-item">';
+                html += '<div class="weakness-title">slow-transitions</div>';
+                html += '<div class="weakness-content">';
+                weaknessData.problematic_transitions.slice(0, 10).forEach(([from, to, latency]) => {
+                    html += `<span class="transition-item">'${from}'->'${to}': ${Math.round(latency)}ms</span>`;
+                });
+                html += '</div></div>';
+            }
+            
+            container.innerHTML = html;
+        }
+
+        function displayErrorDetails(errors) {
+            const container = document.getElementById('errorsList');
+            
+            if (errors.length === 0) {
+                container.innerHTML = '<div style="text-align: center; color: #00ff00;">no errors recorded - perfect session</div>';
+                return;
+            }
+
+            let html = '';
+            errors.slice(0, 20).forEach((error, i) => {
+                const timestamp = Math.round(((error.timestamp.secs || 0) + (error.timestamp.nanos || 0) / 1000000000) * 10) / 10;
+                
+                html += '<div class="error-item">';
+                html += `<span class="error-type">${error.error_type.toLowerCase()}</span>`;
+                html += `<span class="error-chars">expected:'${error.expected_char || '?'}' got:'${error.actual_char || '?'}'</span>`;
+                html += `<span>pos:${error.position}</span>`;
+                html += `<span class="error-time">${timestamp}s</span>`;
+                html += '</div>';
+            });
+            
+            if (errors.length > 20) {
+                html += `<div style="text-align: center; color: #888; margin-top: 1rem;">... and ${errors.length - 20} more errors</div>`;
+            }
+            
+            container.innerHTML = html;
+        }
+    </script>
+</body>
+</html>

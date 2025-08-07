@@ -1,0 +1,11 @@
+fn main() {
+    let mut counter = 0;
+    for i in 0..10 {
+        counter += i;
+        println!("Current value: {}", counter);
+    }
+    match counter {
+        45 => println!("Perfect!"),
+        _ => println!("Unexpected result"),
+    }
+}
