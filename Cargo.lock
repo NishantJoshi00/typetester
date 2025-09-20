@@ -405,6 +405,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "keysentry"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "clap",
+ "crossterm",
+ "rand",
+ "ratatui",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "libc"
 version = "0.2.174"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -744,19 +757,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-ident",
-]
-
-[[package]]
-name = "typetester"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "clap",
- "crossterm",
- "rand",
- "ratatui",
- "serde",
- "serde_json",
 ]
 
 [[package]]

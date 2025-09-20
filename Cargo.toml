@@ -1,7 +1,13 @@
 [package]
-name = "typetester"
+name = "keysentry"
 version = "0.1.0"
 edition = "2024"
+description = "The Unforgiving Typing Trainer - No cheating allowed"
+authors = ["Nishant Joshi"]
+license = "MIT"
+repository = "https://github.com/your-username/keysentry"
+keywords = ["typing", "trainer", "terminal", "tui", "productivity"]
+categories = ["command-line-utilities", "education"]
 
 [dependencies]
 ratatui = "0.28"

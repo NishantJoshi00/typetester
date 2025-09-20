@@ -1,23 +1,21 @@
+use clap::{Parser, Subcommand};
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{
+    Frame, Terminal,
     backend::CrosstermBackend,
     layout::{Alignment, Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{BarChart, Block, Borders, Paragraph, Wrap, Padding},
-    Frame, Terminal,
+    widgets::{BarChart, Block, Borders, Padding, Paragraph, Wrap},
 };
 use serde::{Deserialize, Serialize};
-use chrono;
-use clap::{Parser, Subcommand};
 use std::{
     collections::HashMap,
-    fs,
-    io,
+    fs, io,
     path::{Path, PathBuf},
     time::{Duration, Instant},
 };
@@ -81,7 +79,7 @@ pub struct KeyStat {
     pub count: u32,
     pub total_latency: Duration,
     pub error_count: u32,
-    pub latencies: Vec<u64>, // Individual keystroke latencies in ms
+    pub latencies: Vec<u64>,   // Individual keystroke latencies in ms
     pub positions: Vec<usize>, // Where this key appeared in text
 }
 
@@ -104,12 +102,12 @@ pub struct HesitationPattern {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum HesitationType {
-    LongPause,        // >500ms pause
-    DoubleDigraph,    // Common letter combinations (th, er, ing)
-    Transition,       // Moving between hands/fingers
-    Punctuation,      // Hesitation before punctuation
-    CaseChange,       // Upper/lowercase transitions
-    NumberSymbol,     // Numbers or symbols
+    LongPause,     // >500ms pause
+    DoubleDigraph, // Common letter combinations (th, er, ing)
+    Transition,    // Moving between hands/fingers
+    Punctuation,   // Hesitation before punctuation
+    CaseChange,    // Upper/lowercase transitions
+    NumberSymbol,  // Numbers or symbols
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -150,7 +148,6 @@ enum ReportView {
     Charts,
     Analysis,
 }
-
 
 pub struct TypingSession {
     target_text: String,
@@ -210,7 +207,7 @@ impl TypingSession {
         }
 
         let expected_char = self.target_text.chars().nth(self.current_position);
-        
+
         self.user_input.push(key);
         self.update_key_stats(key, latency);
 
@@ -262,12 +259,12 @@ impl TypingSession {
                 if self.consecutive_errors > 0 {
                     self.consecutive_errors -= 1;
                 }
-                
+
                 // If no more consecutive errors, clear error state
                 if self.consecutive_errors == 0 {
                     self.has_error = false;
                 }
-                
+
                 self.is_frozen = false;
                 self.total_corrections += 1;
             } else if self.current_position > 0 {
@@ -296,7 +293,7 @@ impl TypingSession {
         self.errors.push(error);
         self.has_error = true;
         self.consecutive_errors += 1;
-        
+
         // Freeze after 10 consecutive errors
         if self.consecutive_errors >= 10 {
             self.is_frozen = true;
@@ -306,7 +303,7 @@ impl TypingSession {
     fn update_key_stats(&mut self, key: char, latency: Duration) {
         let now = Instant::now();
         let latency_ms = latency.as_millis() as u64;
-        
+
         // Update key statistics
         let stat = self.key_stats.entry(key).or_insert(KeyStat {
             key,
@@ -316,16 +313,16 @@ impl TypingSession {
             latencies: Vec::new(),
             positions: Vec::new(),
         });
-        
+
         stat.count += 1;
         stat.total_latency += latency;
         stat.latencies.push(latency_ms);
         stat.positions.push(self.current_position);
-        
+
         if self.has_error {
             stat.error_count += 1;
         }
-        
+
         // Record typing rhythm
         self.typing_rhythm.push(TypingRhythm {
             timestamp: now.duration_since(self.session_start),
@@ -333,25 +330,28 @@ impl TypingSession {
             position: self.current_position,
             char_typed: key,
         });
-        
+
         // Detect hesitation patterns
         if latency_ms > 500 {
             let preceding = if self.current_position >= 3 {
-                self.target_text.chars()
+                self.target_text
+                    .chars()
                     .skip(self.current_position.saturating_sub(3))
                     .take(3)
                     .collect()
             } else {
                 String::new()
             };
-            
-            let following: String = self.target_text.chars()
+
+            let following: String = self
+                .target_text
+                .chars()
                 .skip(self.current_position + 1)
                 .take(3)
                 .collect();
-            
+
             let pattern_type = self.detect_hesitation_type(key, latency_ms, &preceding, &following);
-            
+
             self.hesitation_patterns.push(HesitationPattern {
                 position: self.current_position,
                 duration: latency,
@@ -360,39 +360,47 @@ impl TypingSession {
                 pattern_type,
             });
         }
-        
+
         // Sample WPM every 10 characters
         if self.current_position % 10 == 0 && self.current_position > 0 {
             let wpm = self.calculate_wpm();
             self.wpm_samples.push((now, wpm));
         }
     }
-    
-    fn detect_hesitation_type(&self, key: char, latency_ms: u64, preceding: &str, _following: &str) -> HesitationType {
+
+    fn detect_hesitation_type(
+        &self,
+        key: char,
+        latency_ms: u64,
+        preceding: &str,
+        _following: &str,
+    ) -> HesitationType {
         if latency_ms > 1000 {
             return HesitationType::LongPause;
         }
-        
+
         if key.is_ascii_punctuation() {
             return HesitationType::Punctuation;
         }
-        
+
         if key.is_ascii_digit() || "!@#$%^&*()_+{}|:<>?".contains(key) {
             return HesitationType::NumberSymbol;
         }
-        
-        if key.is_uppercase() != preceding.chars().last().map_or(false, |c| c.is_uppercase()) {
+
+        if key.is_uppercase() != preceding.chars().last().is_some_and(|c| c.is_uppercase()) {
             return HesitationType::CaseChange;
         }
-        
+
         // Check for common digraphs
         if let Some(prev_char) = preceding.chars().last() {
             let digraph = format!("{}{}", prev_char, key);
-            if ["th", "er", "on", "an", "re", "he", "in", "ed", "nd", "ha"].contains(&digraph.as_str()) {
+            if ["th", "er", "on", "an", "re", "he", "in", "ed", "nd", "ha"]
+                .contains(&digraph.as_str())
+            {
                 return HesitationType::DoubleDigraph;
             }
         }
-        
+
         HesitationType::Transition
     }
 
@@ -421,7 +429,10 @@ impl TypingSession {
         if self.is_frozen {
             "FROZEN: 10 consecutive errors! Use backspace to correct.".to_string()
         } else if self.has_error {
-            format!("ERROR BUFFER: {} of 10 errors - use backspace to correct", self.consecutive_errors)
+            format!(
+                "ERROR BUFFER: {} of 10 errors - use backspace to correct",
+                self.consecutive_errors
+            )
         } else {
             "Ready".to_string()
         }
@@ -449,13 +460,16 @@ impl TypingSession {
                     // Last correctly typed character with cursor - green with underline
                     current_line_spans.push(Span::styled(
                         display_text.to_string(),
-                        Style::default().fg(Color::Green).add_modifier(Modifier::UNDERLINED).add_modifier(Modifier::BOLD)
+                        Style::default()
+                            .fg(Color::Green)
+                            .add_modifier(Modifier::UNDERLINED)
+                            .add_modifier(Modifier::BOLD),
                     ));
                 } else {
                     // Other correctly typed characters - green
                     current_line_spans.push(Span::styled(
                         display_text.to_string(),
-                        Style::default().fg(Color::Green)
+                        Style::default().fg(Color::Green),
                     ));
                 }
             } else {
@@ -463,13 +477,16 @@ impl TypingSession {
                     // Last correctly typed character with cursor - green with underline
                     current_line_spans.push(Span::styled(
                         ch.to_string(),
-                        Style::default().fg(Color::Green).add_modifier(Modifier::UNDERLINED).add_modifier(Modifier::BOLD)
+                        Style::default()
+                            .fg(Color::Green)
+                            .add_modifier(Modifier::UNDERLINED)
+                            .add_modifier(Modifier::BOLD),
                     ));
                 } else {
                     // Other correctly typed characters - green
                     current_line_spans.push(Span::styled(
                         ch.to_string(),
-                        Style::default().fg(Color::Green)
+                        Style::default().fg(Color::Green),
                     ));
                 }
             }
@@ -507,12 +524,19 @@ impl TypingSession {
                         // Last error character gets underline cursor
                         current_line_spans.push(Span::styled(
                             display_text.to_string(),
-                            Style::default().bg(Color::Red).fg(Color::White).add_modifier(Modifier::BOLD).add_modifier(Modifier::UNDERLINED)
+                            Style::default()
+                                .bg(Color::Red)
+                                .fg(Color::White)
+                                .add_modifier(Modifier::BOLD)
+                                .add_modifier(Modifier::UNDERLINED),
                         ));
                     } else {
                         current_line_spans.push(Span::styled(
                             display_text.to_string(),
-                            Style::default().bg(Color::Red).fg(Color::White).add_modifier(Modifier::BOLD)
+                            Style::default()
+                                .bg(Color::Red)
+                                .fg(Color::White)
+                                .add_modifier(Modifier::BOLD),
                         ));
                     }
                 } else {
@@ -520,12 +544,19 @@ impl TypingSession {
                         // Last error character gets underline cursor
                         current_line_spans.push(Span::styled(
                             user_char.to_string(),
-                            Style::default().bg(Color::Red).fg(Color::White).add_modifier(Modifier::BOLD).add_modifier(Modifier::UNDERLINED)
+                            Style::default()
+                                .bg(Color::Red)
+                                .fg(Color::White)
+                                .add_modifier(Modifier::BOLD)
+                                .add_modifier(Modifier::UNDERLINED),
                         ));
                     } else {
                         current_line_spans.push(Span::styled(
                             user_char.to_string(),
-                            Style::default().bg(Color::Red).fg(Color::White).add_modifier(Modifier::BOLD)
+                            Style::default()
+                                .bg(Color::Red)
+                                .fg(Color::White)
+                                .add_modifier(Modifier::BOLD),
                         ));
                     }
                 }
@@ -549,27 +580,30 @@ impl TypingSession {
                 // Convert tab to 4 spaces in remaining text
                 current_line_spans.push(Span::styled(
                     "    ".to_string(), // 4 spaces
-                    Style::default().fg(Color::DarkGray)
+                    Style::default().fg(Color::DarkGray),
                 ));
             } else {
                 current_line_spans.push(Span::styled(
                     ch.to_string(),
-                    Style::default().fg(Color::DarkGray)
+                    Style::default().fg(Color::DarkGray),
                 ));
             }
         }
 
         // Add cursor at the end if we've typed everything without errors
         if self.current_position >= target_chars.len() && !self.has_error {
-            current_line_spans.push(Span::styled("|".to_string(),
-                Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)));
+            current_line_spans.push(Span::styled(
+                "|".to_string(),
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD),
+            ));
         }
 
         // Add the final line if it has content
         if !current_line_spans.is_empty() {
             lines.push(Line::from(current_line_spans));
         }
-
 
         lines
     }
@@ -580,14 +614,10 @@ impl TypingSession {
         } else {
             self.session_start.elapsed()
         };
-        
-        let total_latency: Duration = self.key_stats.values()
-            .map(|stat| stat.total_latency)
-            .sum();
-        let total_keys: u32 = self.key_stats.values()
-            .map(|stat| stat.count)
-            .sum();
-        
+
+        let total_latency: Duration = self.key_stats.values().map(|stat| stat.total_latency).sum();
+        let total_keys: u32 = self.key_stats.values().map(|stat| stat.count).sum();
+
         let average_latency = if total_keys > 0 {
             total_latency / total_keys
         } else {
@@ -608,7 +638,9 @@ impl TypingSession {
             typing_rhythm: self.typing_rhythm.clone(),
             hesitation_patterns: self.hesitation_patterns.clone(),
             weakness_analysis: self.analyze_weaknesses(),
-            wpm_over_time: self.wpm_samples.iter()
+            wpm_over_time: self
+                .wpm_samples
+                .iter()
                 .map(|(instant, wpm)| (instant.duration_since(self.session_start), *wpm))
                 .collect(),
         }
@@ -622,21 +654,22 @@ impl TypingSession {
             (self.current_position as f64 / 5.0) / elapsed_minutes
         }
     }
-    
+
     fn analyze_weaknesses(&self) -> WeaknessAnalysis {
         // Analyze slowest digraphs
         let mut digraph_latencies: HashMap<String, Vec<u64>> = HashMap::new();
         for rhythm in &self.typing_rhythm {
-            if rhythm.position > 0 {
-                if let Some(prev_char) = self.target_text.chars().nth(rhythm.position - 1) {
-                    let digraph = format!("{}{}", prev_char, rhythm.char_typed);
-                    digraph_latencies.entry(digraph)
-                        .or_insert_with(Vec::new)
-                        .push(rhythm.latency.as_millis() as u64);
-                }
+            if rhythm.position > 0
+                && let Some(prev_char) = self.target_text.chars().nth(rhythm.position - 1)
+            {
+                let digraph = format!("{}{}", prev_char, rhythm.char_typed);
+                digraph_latencies
+                    .entry(digraph)
+                    .or_default()
+                    .push(rhythm.latency.as_millis() as u64);
             }
         }
-        
+
         let mut slowest_digraphs: Vec<(String, f64)> = digraph_latencies
             .into_iter()
             .filter(|(_, latencies)| latencies.len() >= 2) // Only consider repeated digraphs
@@ -647,12 +680,12 @@ impl TypingSession {
             .collect();
         slowest_digraphs.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
         slowest_digraphs.truncate(10);
-        
+
         // Identify error clusters (groups of errors within 10 characters)
         let mut error_clusters = Vec::new();
         let mut current_cluster_start = None;
         let mut last_error_pos = None;
-        
+
         for error in &self.errors {
             if let Some(last_pos) = last_error_pos {
                 if error.position <= last_pos + 10 {
@@ -669,55 +702,58 @@ impl TypingSession {
             }
             last_error_pos = Some(error.position);
         }
-        
+
         if let (Some(start), Some(end)) = (current_cluster_start, last_error_pos) {
             error_clusters.push((start, end));
         }
-        
+
         // Analyze finger assignment errors (simplified QWERTY layout)
         let finger_map = self.create_finger_map();
         let mut finger_errors: HashMap<String, u32> = HashMap::new();
-        
+
         for error in &self.errors {
             if let (Some(expected), Some(actual)) = (error.expected_char, error.actual_char) {
                 let unknown = "Unknown".to_string();
                 let expected_finger = finger_map.get(&expected).unwrap_or(&unknown);
                 let actual_finger = finger_map.get(&actual).unwrap_or(&unknown);
-                
+
                 if expected_finger != actual_finger {
                     let error_pattern = format!("{} -> {}", expected_finger, actual_finger);
                     *finger_errors.entry(error_pattern).or_insert(0) += 1;
                 }
             }
         }
-        
+
         // Detect rhythm breaks (sudden increases in latency)
         let mut rhythm_breaks = Vec::new();
-        let latencies: Vec<u64> = self.typing_rhythm.iter()
+        let latencies: Vec<u64> = self
+            .typing_rhythm
+            .iter()
             .map(|r| r.latency.as_millis() as u64)
             .collect();
-        
+
         if latencies.len() > 5 {
             for i in 5..latencies.len() {
-                let moving_avg = latencies[i-5..i].iter().sum::<u64>() / 5;
+                let moving_avg = latencies[i - 5..i].iter().sum::<u64>() / 5;
                 if latencies[i] > moving_avg * 2 && latencies[i] > 400 {
                     rhythm_breaks.push(self.typing_rhythm[i].position);
                 }
             }
         }
-        
+
         // Analyze problematic transitions
         let mut transition_latencies: HashMap<(char, char), Vec<u64>> = HashMap::new();
         for i in 1..self.typing_rhythm.len() {
-            let prev_char = self.typing_rhythm[i-1].char_typed;
+            let prev_char = self.typing_rhythm[i - 1].char_typed;
             let curr_char = self.typing_rhythm[i].char_typed;
             let latency = self.typing_rhythm[i].latency.as_millis() as u64;
-            
-            transition_latencies.entry((prev_char, curr_char))
-                .or_insert_with(Vec::new)
+
+            transition_latencies
+                .entry((prev_char, curr_char))
+                .or_default()
                 .push(latency);
         }
-        
+
         let mut problematic_transitions: Vec<(char, char, f64)> = transition_latencies
             .into_iter()
             .filter(|(_, latencies)| latencies.len() >= 2)
@@ -729,7 +765,7 @@ impl TypingSession {
             .collect();
         problematic_transitions.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap());
         problematic_transitions.truncate(10);
-        
+
         WeaknessAnalysis {
             slowest_digraphs,
             error_clusters,
@@ -738,10 +774,10 @@ impl TypingSession {
             problematic_transitions,
         }
     }
-    
+
     fn create_finger_map(&self) -> HashMap<char, String> {
         let mut map = HashMap::new();
-        
+
         // Left hand
         map.insert('q', "L-Pinky".to_string());
         map.insert('w', "L-Ring".to_string());
@@ -758,7 +794,7 @@ impl TypingSession {
         map.insert('c', "L-Middle".to_string());
         map.insert('v', "L-Index".to_string());
         map.insert('b', "L-Index".to_string());
-        
+
         // Right hand
         map.insert('y', "R-Index".to_string());
         map.insert('u', "R-Index".to_string());
@@ -771,10 +807,10 @@ impl TypingSession {
         map.insert('l', "R-Ring".to_string());
         map.insert('n', "R-Index".to_string());
         map.insert('m', "R-Index".to_string());
-        
+
         // Thumbs
         map.insert(' ', "Thumb".to_string());
-        
+
         map
     }
 }
@@ -821,7 +857,8 @@ struct TextParagraph {
 impl TextSource {
     fn load_from_file(path: &Path, size: ChunkSize) -> io::Result<Self> {
         let content = fs::read_to_string(path)?;
-        let filename = path.file_name()
+        let filename = path
+            .file_name()
             .and_then(|n| n.to_str())
             .unwrap_or("unknown")
             .to_string();
@@ -845,7 +882,8 @@ impl TextSource {
         paragraphs.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap());
 
         // Filter paragraphs that fit within the size constraints
-        let suitable_paragraphs: Vec<_> = paragraphs.iter()
+        let suitable_paragraphs: Vec<_> = paragraphs
+            .iter()
             .filter(|p| p.char_count >= target_min_chars && p.char_count <= target_max_chars)
             .collect();
 
@@ -857,7 +895,8 @@ impl TextSource {
         }
 
         // If no perfect fit, find the best-scoring paragraph that's still meaningful
-        let acceptable_paragraphs: Vec<_> = paragraphs.iter()
+        let acceptable_paragraphs: Vec<_> = paragraphs
+            .iter()
             .filter(|p| p.char_count >= target_min_chars / 2) // At least half the target
             .collect();
 
@@ -883,11 +922,15 @@ impl TextSource {
         let mut paragraphs = Vec::new();
 
         // For code files, find function/struct/impl blocks
-        if filename.ends_with(".rs") || filename.ends_with(".py") ||
-           filename.ends_with(".js") || filename.ends_with(".ts") ||
-           filename.ends_with(".cpp") || filename.ends_with(".c") ||
-           filename.ends_with(".java") || filename.ends_with(".go") {
-
+        if filename.ends_with(".rs")
+            || filename.ends_with(".py")
+            || filename.ends_with(".js")
+            || filename.ends_with(".ts")
+            || filename.ends_with(".cpp")
+            || filename.ends_with(".c")
+            || filename.ends_with(".java")
+            || filename.ends_with(".go")
+        {
             let mut current_start = 0;
             let mut brace_depth = 0;
             let mut in_block = false;
@@ -896,11 +939,16 @@ impl TextSource {
                 let trimmed = line.trim();
 
                 // Detect start of code blocks
-                if (trimmed.starts_with("fn ") || trimmed.starts_with("pub fn ") ||
-                    trimmed.starts_with("struct ") || trimmed.starts_with("impl ") ||
-                    trimmed.starts_with("enum ") || trimmed.starts_with("class ") ||
-                    trimmed.starts_with("def ") || trimmed.starts_with("function ")) &&
-                   brace_depth == 0 {
+                if (trimmed.starts_with("fn ")
+                    || trimmed.starts_with("pub fn ")
+                    || trimmed.starts_with("struct ")
+                    || trimmed.starts_with("impl ")
+                    || trimmed.starts_with("enum ")
+                    || trimmed.starts_with("class ")
+                    || trimmed.starts_with("def ")
+                    || trimmed.starts_with("function "))
+                    && brace_depth == 0
+                {
                     current_start = i;
                     in_block = true;
                 }
@@ -913,7 +961,8 @@ impl TextSource {
                 if in_block && brace_depth == 0 && line.contains('}') {
                     let block_lines = &lines[current_start..=i];
                     let content = block_lines.join("\n");
-                    if content.len() > 200 { // Only meaningful blocks
+                    if content.len() > 200 {
+                        // Only meaningful blocks
                         paragraphs.push(TextParagraph {
                             content,
                             char_count: block_lines.join("\n").len(),
@@ -928,7 +977,8 @@ impl TextSource {
             let content_str = content.to_string();
 
             for paragraph_text in content_str.split("\n\n") {
-                if paragraph_text.trim().len() > 100 { // Only meaningful paragraphs
+                if paragraph_text.trim().len() > 100 {
+                    // Only meaningful paragraphs
                     paragraphs.push(TextParagraph {
                         content: paragraph_text.to_string(),
                         char_count: paragraph_text.len(),
@@ -949,33 +999,52 @@ impl TextSource {
         score += if len > 50.0 && len < 500.0 { 10.0 } else { 5.0 };
 
         // Bonus for diverse character usage (good for typing practice)
-        let unique_chars = content.chars().collect::<std::collections::HashSet<_>>().len() as f32;
+        let unique_chars = content
+            .chars()
+            .collect::<std::collections::HashSet<_>>()
+            .len() as f32;
         score += unique_chars * 0.5;
 
         // Code-specific scoring
-        if filename.ends_with(".rs") || filename.ends_with(".py") ||
-           filename.ends_with(".js") || filename.ends_with(".ts") ||
-           filename.ends_with(".cpp") || filename.ends_with(".java") {
-
+        if filename.ends_with(".rs")
+            || filename.ends_with(".py")
+            || filename.ends_with(".js")
+            || filename.ends_with(".ts")
+            || filename.ends_with(".cpp")
+            || filename.ends_with(".java")
+        {
             // Bonus for function implementations (good typing practice)
-            if content.contains("fn ") || content.contains("function ") || content.contains("def ") {
+            if content.contains("fn ") || content.contains("function ") || content.contains("def ")
+            {
                 score += 15.0;
             }
 
             // Bonus for control structures (interesting patterns)
-            if content.contains("if ") || content.contains("for ") || content.contains("while ") ||
-               content.contains("match ") || content.contains("switch ") {
+            if content.contains("if ")
+                || content.contains("for ")
+                || content.contains("while ")
+                || content.contains("match ")
+                || content.contains("switch ")
+            {
                 score += 10.0;
             }
 
             // Bonus for data structures
-            if content.contains("struct ") || content.contains("class ") || content.contains("enum ") {
+            if content.contains("struct ")
+                || content.contains("class ")
+                || content.contains("enum ")
+            {
                 score += 12.0;
             }
 
             // Bonus for error handling (challenging typing)
-            if content.contains("Result") || content.contains("Option") || content.contains("Error") ||
-               content.contains("try") || content.contains("catch") || content.contains("except") {
+            if content.contains("Result")
+                || content.contains("Option")
+                || content.contains("Error")
+                || content.contains("try")
+                || content.contains("catch")
+                || content.contains("except")
+            {
                 score += 8.0;
             }
 
@@ -985,21 +1054,34 @@ impl TextSource {
             }
 
             // Penalty for mostly comments or too simple
-            let comment_ratio = content.lines()
-                .filter(|line| line.trim().starts_with("//") || line.trim().starts_with("/*") || line.trim().starts_with("#"))
-                .count() as f32 / content.lines().count().max(1) as f32;
+            let comment_ratio = content
+                .lines()
+                .filter(|line| {
+                    line.trim().starts_with("//")
+                        || line.trim().starts_with("/*")
+                        || line.trim().starts_with("#")
+                })
+                .count() as f32
+                / content.lines().count().max(1) as f32;
             score -= comment_ratio * 10.0;
 
             // Penalty for too many imports/includes (boring)
-            if content.contains("import ") || content.contains("use ") || content.contains("#include") {
-                let import_lines = content.lines()
-                    .filter(|line| line.contains("import ") || line.contains("use ") || line.contains("#include"))
+            if content.contains("import ")
+                || content.contains("use ")
+                || content.contains("#include")
+            {
+                let import_lines = content
+                    .lines()
+                    .filter(|line| {
+                        line.contains("import ")
+                            || line.contains("use ")
+                            || line.contains("#include")
+                    })
                     .count();
                 if import_lines > 3 {
                     score -= 5.0;
                 }
             }
-
         } else {
             // Text file scoring
             let word_count = content.split_whitespace().count() as f32;
@@ -1010,7 +1092,8 @@ impl TextSource {
             }
 
             // Bonus for punctuation variety (good typing practice)
-            let punct_chars = content.chars()
+            let punct_chars = content
+                .chars()
                 .filter(|c| ".,;:!?\"'()-[]{}".contains(*c))
                 .count() as f32;
             score += punct_chars * 0.3;
@@ -1063,7 +1146,8 @@ impl TextSource {
         paragraphs.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap());
 
         // Filter paragraphs that fit the size requirement
-        let suitable_paragraphs: Vec<_> = paragraphs.iter()
+        let suitable_paragraphs: Vec<_> = paragraphs
+            .iter()
             .filter(|p| p.char_count >= target_min_chars && p.char_count <= target_max_chars)
             .collect();
 
@@ -1073,7 +1157,8 @@ impl TextSource {
         }
 
         // If no perfect fit, find the best available paragraph
-        let acceptable_paragraphs: Vec<_> = paragraphs.iter()
+        let acceptable_paragraphs: Vec<_> = paragraphs
+            .iter()
             .filter(|p| p.char_count >= target_min_chars / 2)
             .collect();
 
@@ -1093,17 +1178,13 @@ impl TextSource {
 
     fn get_content(&self) -> Option<(String, String)> {
         match self {
-            TextSource::File(name, content) => {
-                Some((name.clone(), content.clone()))
-            }
+            TextSource::File(name, content) => Some((name.clone(), content.clone())),
             TextSource::Inception(content) => {
                 Some(("main.rs (INCEPTION MODE)".to_string(), content.clone()))
             }
         }
     }
-
 }
-
 
 impl App {
     fn new(text_source: TextSource) -> io::Result<Self> {
@@ -1120,7 +1201,7 @@ impl App {
 
         Ok(app)
     }
-    
+
     fn start_typing_session(&mut self) {
         if let Some((_, content)) = self.text_source.get_content() {
             self.session = Some(TypingSession::new(content));
@@ -1134,7 +1215,9 @@ impl App {
                 AppState::Typing => {
                     if let Some(session) = &mut self.session {
                         match key.code {
-                            KeyCode::Char('q') if key.modifiers.contains(event::KeyModifiers::CONTROL) => {
+                            KeyCode::Char('q')
+                                if key.modifiers.contains(event::KeyModifiers::CONTROL) =>
+                            {
                                 self.should_quit = true;
                             }
                             KeyCode::Char(c) => {
@@ -1168,32 +1251,30 @@ impl App {
                         }
                     }
                 }
-                AppState::ShowingReport => {
-                    match key.code {
-                        KeyCode::Char('q') | KeyCode::Char('Q') | KeyCode::Esc => {
-                            self.should_quit = true;
-                        }
-                        KeyCode::Char('e') => {
-                            self.export_report()?;
-                        }
-                        KeyCode::Char('r') => {
-                            self.start_typing_session();
-                        }
-                        KeyCode::Left | KeyCode::Char('h') => {
-                            self.report_view = match self.report_view {
-                                ReportView::Charts => ReportView::Analysis,
-                                ReportView::Analysis => ReportView::Charts,
-                            };
-                        }
-                        KeyCode::Right | KeyCode::Char('l') => {
-                            self.report_view = match self.report_view {
-                                ReportView::Charts => ReportView::Analysis,
-                                ReportView::Analysis => ReportView::Charts,
-                            };
-                        }
-                        _ => {}
+                AppState::ShowingReport => match key.code {
+                    KeyCode::Char('q') | KeyCode::Char('Q') | KeyCode::Esc => {
+                        self.should_quit = true;
                     }
-                }
+                    KeyCode::Char('e') => {
+                        self.export_report()?;
+                    }
+                    KeyCode::Char('r') => {
+                        self.start_typing_session();
+                    }
+                    KeyCode::Left | KeyCode::Char('h') => {
+                        self.report_view = match self.report_view {
+                            ReportView::Charts => ReportView::Analysis,
+                            ReportView::Analysis => ReportView::Charts,
+                        };
+                    }
+                    KeyCode::Right | KeyCode::Char('l') => {
+                        self.report_view = match self.report_view {
+                            ReportView::Charts => ReportView::Analysis,
+                            ReportView::Analysis => ReportView::Charts,
+                        };
+                    }
+                    _ => {}
+                },
             }
         }
         Ok(())
@@ -1203,14 +1284,15 @@ impl App {
         if let Some(session) = &self.session {
             let report = session.generate_report();
             let json = serde_json::to_string_pretty(&report)?;
-            let filename = format!("typing_report_{}.json", 
-                chrono::Utc::now().format("%Y%m%d_%H%M%S"));
+            let filename = format!(
+                "typing_report_{}.json",
+                chrono::Utc::now().format("%Y%m%d_%H%M%S")
+            );
             std::fs::write(&filename, json)?;
         }
         Ok(())
     }
 }
-
 
 fn ui_typing(f: &mut Frame, app: &App) {
     if let Some(session) = &app.session {
@@ -1235,15 +1317,14 @@ fn ui_typing(f: &mut Frame, app: &App) {
             .split(chunks[0]);
 
         // Main typing area - centered text with styling
-        let text_block = Block::default()
-            .borders(Borders::NONE);
-        
+        let text_block = Block::default().borders(Borders::NONE);
+
         let styled_lines = session.generate_styled_text();
         let paragraph = Paragraph::new(styled_lines)
             .block(text_block)
             .wrap(Wrap { trim: false })
             .alignment(Alignment::Left);
-        
+
         f.render_widget(paragraph, horizontal_chunks[1]);
 
         // Status message
@@ -1254,7 +1335,7 @@ fn ui_typing(f: &mut Frame, app: &App) {
         } else {
             Color::Green
         };
-        
+
         let status = Paragraph::new(session.get_status())
             .alignment(Alignment::Center)
             .style(Style::default().fg(status_color));
@@ -1271,7 +1352,7 @@ fn ui_typing(f: &mut Frame, app: &App) {
 fn ui_report(f: &mut Frame, app: &App) {
     if let Some(session) = &app.session {
         let report = session.generate_report();
-    
+
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .margin(2)
@@ -1289,7 +1370,11 @@ fn ui_report(f: &mut Frame, app: &App) {
         };
         let title = Paragraph::new(format!("Typing Session Complete! - {}", view_name))
             .alignment(Alignment::Center)
-            .style(Style::default().fg(Color::Green).add_modifier(Modifier::BOLD));
+            .style(
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD),
+            );
         f.render_widget(title, chunks[0]);
 
         // Render different views based on report_view
@@ -1306,7 +1391,11 @@ fn ui_report(f: &mut Frame, app: &App) {
     }
 }
 
-fn render_consolidated_charts_view(f: &mut Frame, area: ratatui::layout::Rect, report: &SessionReport) {
+fn render_consolidated_charts_view(
+    f: &mut Frame,
+    area: ratatui::layout::Rect,
+    report: &SessionReport,
+) {
     let main_chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(75), Constraint::Percentage(25)])
@@ -1332,9 +1421,17 @@ fn render_consolidated_charts_view(f: &mut Frame, area: ratatui::layout::Rect, r
     );
 
     let stats = Paragraph::new(stats_text)
-        .block(Block::default().title("Session Summary").borders(Borders::ALL))
+        .block(
+            Block::default()
+                .title("Session Summary")
+                .borders(Borders::ALL),
+        )
         .alignment(Alignment::Center)
-        .style(Style::default().fg(Color::Green).add_modifier(Modifier::BOLD));
+        .style(
+            Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::BOLD),
+        );
     f.render_widget(stats, chart_chunks[0]);
 
     // Key charts - top row
@@ -1344,32 +1441,53 @@ fn render_consolidated_charts_view(f: &mut Frame, area: ratatui::layout::Rect, r
         .split(chart_chunks[1]);
 
     // Most frequent keys chart
-    let mut key_data: Vec<_> = report.key_stats.iter()
+    let mut key_data: Vec<_> = report
+        .key_stats
+        .iter()
         .map(|(key, stats)| {
-            let display_key = if *key == ' ' { "Space".to_string() } else { key.to_string() };
+            let display_key = if *key == ' ' {
+                "Space".to_string()
+            } else {
+                key.to_string()
+            };
             (display_key, stats.count as u64)
         })
         .collect();
     key_data.sort_by(|a, b| b.1.cmp(&a.1));
     key_data.truncate(8);
 
-    let key_chart_data: Vec<_> = key_data.iter()
+    let key_chart_data: Vec<_> = key_data
+        .iter()
         .map(|(key, count)| (key.as_str(), *count))
         .collect();
 
     let key_chart = BarChart::default()
-        .block(Block::default().title("Most Used Keys").borders(Borders::ALL))
+        .block(
+            Block::default()
+                .title("Most Used Keys")
+                .borders(Borders::ALL),
+        )
         .data(&key_chart_data)
         .bar_width(3)
         .bar_style(Style::default().fg(Color::Green))
-        .value_style(Style::default().fg(Color::White).add_modifier(Modifier::BOLD));
+        .value_style(
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        );
     f.render_widget(key_chart, key_charts[0]);
 
     // Error-prone keys chart
-    let mut error_data: Vec<_> = report.key_stats.iter()
+    let mut error_data: Vec<_> = report
+        .key_stats
+        .iter()
         .filter(|(_, stats)| stats.error_count > 0)
         .map(|(key, stats)| {
-            let display_key = if *key == ' ' { "Space".to_string() } else { key.to_string() };
+            let display_key = if *key == ' ' {
+                "Space".to_string()
+            } else {
+                key.to_string()
+            };
             (display_key, stats.error_count as u64)
         })
         .collect();
@@ -1377,20 +1495,33 @@ fn render_consolidated_charts_view(f: &mut Frame, area: ratatui::layout::Rect, r
     error_data.truncate(8);
 
     if !error_data.is_empty() {
-        let error_chart_data: Vec<_> = error_data.iter()
+        let error_chart_data: Vec<_> = error_data
+            .iter()
             .map(|(key, count)| (key.as_str(), *count))
             .collect();
 
         let error_chart = BarChart::default()
-            .block(Block::default().title("Error-Prone Keys").borders(Borders::ALL))
+            .block(
+                Block::default()
+                    .title("Error-Prone Keys")
+                    .borders(Borders::ALL),
+            )
             .data(&error_chart_data)
             .bar_width(3)
             .bar_style(Style::default().fg(Color::Red))
-            .value_style(Style::default().fg(Color::White).add_modifier(Modifier::BOLD));
+            .value_style(
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD),
+            );
         f.render_widget(error_chart, key_charts[1]);
     } else {
         let no_errors = Paragraph::new("No errors! Perfect typing!")
-            .block(Block::default().title("Error-Prone Keys").borders(Borders::ALL))
+            .block(
+                Block::default()
+                    .title("Error-Prone Keys")
+                    .borders(Borders::ALL),
+            )
             .alignment(Alignment::Center)
             .style(Style::default().fg(Color::Green));
         f.render_widget(no_errors, key_charts[1]);
@@ -1404,13 +1535,16 @@ fn render_consolidated_charts_view(f: &mut Frame, area: ratatui::layout::Rect, r
 
     // Error timeline
     if !report.errors.is_empty() {
-        let timeline_text = report.errors.iter()
+        let timeline_text = report
+            .errors
+            .iter()
             .take(10)
             .enumerate()
             .map(|(i, error)| {
                 let timestamp = error.timestamp.as_secs_f64();
-                format!("{}. {:.1}s: {} '{}' -> '{}'", 
-                    i + 1, 
+                format!(
+                    "{}. {:.1}s: {} '{}' -> '{}'",
+                    i + 1,
                     timestamp,
                     match error.error_type {
                         ErrorType::Substitution => "Sub",
@@ -1426,12 +1560,20 @@ fn render_consolidated_charts_view(f: &mut Frame, area: ratatui::layout::Rect, r
             .join("\n");
 
         let timeline = Paragraph::new(timeline_text)
-            .block(Block::default().title("Error Timeline").borders(Borders::ALL))
+            .block(
+                Block::default()
+                    .title("Error Timeline")
+                    .borders(Borders::ALL),
+            )
             .wrap(Wrap { trim: true });
         f.render_widget(timeline, bottom_charts[0]);
     } else {
         let no_errors = Paragraph::new("No errors recorded!\nPerfect session!")
-            .block(Block::default().title("Error Timeline").borders(Borders::ALL))
+            .block(
+                Block::default()
+                    .title("Error Timeline")
+                    .borders(Borders::ALL),
+            )
             .alignment(Alignment::Center)
             .style(Style::default().fg(Color::Green));
         f.render_widget(no_errors, bottom_charts[0]);
@@ -1441,10 +1583,13 @@ fn render_consolidated_charts_view(f: &mut Frame, area: ratatui::layout::Rect, r
     let hesitation_text = if report.hesitation_patterns.is_empty() {
         "No significant hesitations!\nGood rhythm maintained.".to_string()
     } else {
-        report.hesitation_patterns.iter()
+        report
+            .hesitation_patterns
+            .iter()
             .take(8)
             .map(|h| {
-                format!("{}ms at pos {} ({})", 
+                format!(
+                    "{}ms at pos {} ({})",
                     h.duration.as_millis(),
                     h.position,
                     match h.pattern_type {
@@ -1462,7 +1607,11 @@ fn render_consolidated_charts_view(f: &mut Frame, area: ratatui::layout::Rect, r
     };
 
     let hesitation = Paragraph::new(hesitation_text)
-        .block(Block::default().title("Hesitation Patterns").borders(Borders::ALL))
+        .block(
+            Block::default()
+                .title("Hesitation Patterns")
+                .borders(Borders::ALL),
+        )
         .wrap(Wrap { trim: true });
     f.render_widget(hesitation, bottom_charts[1]);
 
@@ -1493,7 +1642,11 @@ fn render_consolidated_charts_view(f: &mut Frame, area: ratatui::layout::Rect, r
     f.render_widget(education, main_chunks[1]);
 }
 
-fn render_consolidated_analysis_view(f: &mut Frame, area: ratatui::layout::Rect, report: &SessionReport) {
+fn render_consolidated_analysis_view(
+    f: &mut Frame,
+    area: ratatui::layout::Rect,
+    report: &SessionReport,
+) {
     let main_chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(75), Constraint::Percentage(25)])
@@ -1510,15 +1663,17 @@ fn render_consolidated_analysis_view(f: &mut Frame, area: ratatui::layout::Rect,
         .split(main_chunks[0]);
 
     // Key performance metrics
-    let total_latency: Duration = report.key_stats.values()
+    let total_latency: Duration = report
+        .key_stats
+        .values()
         .map(|stat| stat.total_latency)
         .sum();
-    let total_keys: u32 = report.key_stats.values()
-        .map(|stat| stat.count)
-        .sum();
-    let avg_latency = if total_keys > 0 { 
-        total_latency.as_millis() / total_keys as u128 
-    } else { 0 };
+    let total_keys: u32 = report.key_stats.values().map(|stat| stat.count).sum();
+    let avg_latency = if total_keys > 0 {
+        total_latency.as_millis() / total_keys as u128
+    } else {
+        0
+    };
 
     let metrics_text = format!(
         "PERFORMANCE METRICS\n\
@@ -1535,7 +1690,11 @@ fn render_consolidated_analysis_view(f: &mut Frame, area: ratatui::layout::Rect,
     );
 
     let metrics = Paragraph::new(metrics_text)
-        .block(Block::default().title("📈 Performance Overview").borders(Borders::ALL))
+        .block(
+            Block::default()
+                .title("📈 Performance Overview")
+                .borders(Borders::ALL),
+        )
         .style(Style::default().fg(Color::Green));
     f.render_widget(metrics, analysis_chunks[0]);
 
@@ -1558,7 +1717,11 @@ fn render_consolidated_analysis_view(f: &mut Frame, area: ratatui::layout::Rect,
     };
 
     let digraphs = Paragraph::new(digraph_text)
-        .block(Block::default().title("🔤 Letter Combinations").borders(Borders::ALL))
+        .block(
+            Block::default()
+                .title("🔤 Letter Combinations")
+                .borders(Borders::ALL),
+        )
         .wrap(Wrap { trim: true });
     f.render_widget(digraphs, weakness_top[0]);
 
@@ -1567,7 +1730,12 @@ fn render_consolidated_analysis_view(f: &mut Frame, area: ratatui::layout::Rect,
         "✅ Perfect finger positioning!\n\nNo cross-finger errors detected.\n\n\n".to_string()
     } else {
         let mut text = "⚠️  FINGER POSITIONING ERRORS:\n".to_string();
-        let errors: Vec<_> = report.weakness_analysis.finger_errors.iter().take(5).collect();
+        let errors: Vec<_> = report
+            .weakness_analysis
+            .finger_errors
+            .iter()
+            .take(5)
+            .collect();
         for (pattern, count) in &errors {
             text.push_str(&format!("• {}: {} times\n", pattern, count));
         }
@@ -1580,7 +1748,11 @@ fn render_consolidated_analysis_view(f: &mut Frame, area: ratatui::layout::Rect,
     };
 
     let fingers = Paragraph::new(finger_text)
-        .block(Block::default().title("👆 Finger Analysis").borders(Borders::ALL))
+        .block(
+            Block::default()
+                .title("👆 Finger Analysis")
+                .borders(Borders::ALL),
+        )
         .wrap(Wrap { trim: true });
     f.render_widget(fingers, weakness_top[1]);
 
@@ -1596,14 +1768,23 @@ fn render_consolidated_analysis_view(f: &mut Frame, area: ratatui::layout::Rect,
     } else {
         let mut text = "⚠️  ERROR CLUSTERS FOUND:\n".to_string();
         for (start, end) in &report.weakness_analysis.error_clusters {
-            text.push_str(&format!("• Positions {}-{} ({} chars)\n", start, end, end - start + 1));
+            text.push_str(&format!(
+                "• Positions {}-{} ({} chars)\n",
+                start,
+                end,
+                end - start + 1
+            ));
         }
         text.push_str("\nThese sections need extra practice!");
         text
     };
 
     let clusters = Paragraph::new(cluster_text)
-        .block(Block::default().title("🎯 Error Hotspots").borders(Borders::ALL))
+        .block(
+            Block::default()
+                .title("🎯 Error Hotspots")
+                .borders(Borders::ALL),
+        )
         .wrap(Wrap { trim: true });
     f.render_widget(clusters, weakness_mid[0]);
 
@@ -1613,13 +1794,20 @@ fn render_consolidated_analysis_view(f: &mut Frame, area: ratatui::layout::Rect,
     } else {
         let break_count = report.weakness_analysis.rhythm_breaks.len();
         let positions = if break_count <= 8 {
-            report.weakness_analysis.rhythm_breaks.iter()
+            report
+                .weakness_analysis
+                .rhythm_breaks
+                .iter()
                 .map(|pos| pos.to_string())
                 .collect::<Vec<_>>()
                 .join(", ")
         } else {
-            format!("{} (and {} more)", 
-                report.weakness_analysis.rhythm_breaks.iter()
+            format!(
+                "{} (and {} more)",
+                report
+                    .weakness_analysis
+                    .rhythm_breaks
+                    .iter()
                     .take(6)
                     .map(|pos| pos.to_string())
                     .collect::<Vec<_>>()
@@ -1627,29 +1815,36 @@ fn render_consolidated_analysis_view(f: &mut Frame, area: ratatui::layout::Rect,
                 break_count - 6
             )
         };
-        
-        format!("⚠️  RHYTHM DISRUPTIONS:\n\
+
+        format!(
+            "⚠️  RHYTHM DISRUPTIONS:\n\
                  • {} sudden slowdowns detected\n\
                  • Positions: {}\n\n\
                  Work on maintaining steady pace!",
-                break_count, positions
+            break_count, positions
         )
     };
 
     let rhythm = Paragraph::new(rhythm_text)
-        .block(Block::default().title("⏱️  Rhythm Analysis").borders(Borders::ALL))
+        .block(
+            Block::default()
+                .title("⏱️  Rhythm Analysis")
+                .borders(Borders::ALL),
+        )
         .wrap(Wrap { trim: true });
     f.render_widget(rhythm, weakness_mid[1]);
 
     // Detailed recommendations
     let mut recommendations = "🎯 PERSONALIZED IMPROVEMENT PLAN:\n\n".to_string();
-    
+
     if report.wpm < 30.0 {
-        recommendations.push_str("🐌 SPEED: Focus on accuracy first, then gradually increase pace\n");
+        recommendations
+            .push_str("🐌 SPEED: Focus on accuracy first, then gradually increase pace\n");
     } else if report.wpm < 50.0 {
         recommendations.push_str("🚶 SPEED: Good foundation! Work on consistent 40+ WPM\n");
     } else {
-        recommendations.push_str("🏃 SPEED: Excellent! Maintain this pace while improving accuracy\n");
+        recommendations
+            .push_str("🏃 SPEED: Excellent! Maintain this pace while improving accuracy\n");
     }
 
     if report.accuracy < 90.0 {
@@ -1672,14 +1867,20 @@ fn render_consolidated_analysis_view(f: &mut Frame, area: ratatui::layout::Rect,
         recommendations.push_str("⏱️  RHYTHM: Practice with metronome for consistency\n");
     }
 
-    recommendations.push_str("\n💡 NEXT STEPS:\n\
+    recommendations.push_str(
+        "\n💡 NEXT STEPS:\n\
                               1. Practice identified weak areas daily\n\
                               2. Use typing games for problem keys\n\
                               3. Maintain proper posture and hand position\n\
-                              4. Take breaks to avoid fatigue");
+                              4. Take breaks to avoid fatigue",
+    );
 
     let rec_widget = Paragraph::new(recommendations)
-        .block(Block::default().title("📋 Action Plan").borders(Borders::ALL))
+        .block(
+            Block::default()
+                .title("📋 Action Plan")
+                .borders(Borders::ALL),
+        )
         .wrap(Wrap { trim: true })
         .style(Style::default().fg(Color::Yellow));
     f.render_widget(rec_widget, analysis_chunks[3]);
@@ -1736,11 +1937,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut app = App::new(text_source)?;
 
     loop {
-        terminal.draw(|f| {
-            match app.state {
-                AppState::Typing => ui_typing(f, &app),
-                AppState::ShowingReport => ui_report(f, &app),
-            }
+        terminal.draw(|f| match app.state {
+            AppState::Typing => ui_typing(f, &app),
+            AppState::ShowingReport => ui_report(f, &app),
         })?;
 
         if event::poll(Duration::from_millis(50))? {
@@ -1762,4 +1961,3 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
-

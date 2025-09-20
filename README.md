@@ -1,15 +1,36 @@
-# TypeTester
+# KeySentry
+### Finally understand why you type the way you do
 
-A terminal-based typing analyzer that tracks keystrokes in real time, detects and enforces correction of typing errors, and provides detailed performance insights. Designed for training, not passive tracking.
+Ever wonder why you stumble on certain letter combinations? Why you pause before punctuation? KeySentry captures every millisecond, every hesitation, every muscle memory glitch. It's like having an MRI for your typing brain.
 
-## Features
+**Discover your typing DNA. See the invisible patterns. Train what actually matters.**
 
-- **Real-time typing analysis** with character-by-character tracking
-- **Error detection and enforcement** - freezes input until errors are corrected
-- **Comprehensive analytics** including WPM, accuracy, error patterns, and rhythm analysis
-- **Three usage modes**: library browser, direct file input, and "inception mode" (type the source code)
-- **Detailed session reports** exported as JSON with optional HTML visualization
-- **Text library system** with categorized practice materials
+*"I had no idea I was doing that weird thing with the letter 'q'" - Every user after 5 minutes*
+
+## What Makes KeySentry Special
+
+**TYPING X-RAY VISION**
+- See which finger combinations slow you down
+- Discover which punctuation marks make you hesitate
+- Find the digraphs (letter pairs) that trip you up
+- Identify when you're fighting your own muscle memory
+
+**PATTERN RECOGNITION INTELLIGENCE**
+- Learns your personal weaknesses across sessions
+- Maps your mental load: where do you pause to think?
+- Tracks rhythm disruptions and when your flow breaks
+- Detects fatigue patterns and warm-up curves
+
+**REAL-TIME DISCOVERY**
+- **Library Mode**: Practice with curated content that reveals common weaknesses
+- **File Mode**: Analyze your real-world documents and code
+- **Inception Mode**: Type KeySentry's own source code for the ultimate challenge
+
+**INSIGHT-DRIVEN REPORTS**
+- Every keystroke mapped with millisecond precision
+- Error classification helps you understand what went wrong
+- Visual flow analysis shows your rhythm and hesitation patterns
+- JSON exports for deeper analysis
 
 ## Installation
 
@@ -20,32 +41,37 @@ A terminal-based typing analyzer that tracks keystrokes in real time, detects an
 ### Building from source
 ```bash
 git clone <repository-url>
-cd typetester
+cd keysentry
 cargo build --release
 ```
 
 ## Usage
 
-### Basic Usage
+### Quick Start
+
 ```bash
-# Default mode - browse text library
-cargo run
+# Discover your typing DNA
+cargo run -- --file README.md
 
-# Load specific file for typing practice
-cargo run -- --file path/to/your/text.txt
+# Challenge mode: Type your own code
+cargo run -- --file src/main.rs
 
-# Inception mode - type the application's own source code
+# INCEPTION MODE: Type KeySentry typing KeySentry (mind-bending)
 cargo run -- --inception
 
-# Show all options
+# See all options
 cargo run -- --help
 ```
 
-### Chunk Sizes
-Control practice text length with the `--size` flag:
-- `small`: ~800-1600 characters (20-40 lines)
-- `medium`: ~1600-3200 characters (40-80 lines) - default
-- `large`: ~3200-4800 characters (80-120 lines)
+**Try this first:** `cargo run -- --inception` - It's weirdly addictive.
+
+### Discovery Modes
+
+```bash
+--size small   # Quick 2-minute insights (800-1600 chars)
+--size medium  # Deep 5-minute analysis (1600-3200 chars) - default
+--size large   # Epic 10-minute deep dive (3200-4800 chars)
+```
 
 ### Text Library Structure
 Organize practice texts in the `texts/` directory:
@@ -59,25 +85,25 @@ texts/
 └── samples/
 ```
 
-## How It Works
+## How KeySentry Works
 
-### Error Detection & Enforcement
-The application detects four types of errors:
+### Error Detection & Analysis
+KeySentry tracks four types of typing patterns:
 - **Substitution**: Wrong character typed
-- **Insertion**: Extra character typed
+- **Insertion**: Extra character added
 - **Omission**: Character skipped
-- **Repeat**: Character duplicated
+- **Repetition**: Character duplicated
 
-After detecting an error, the system allows up to 10 additional characters before freezing input. Typing resumes only after backspacing to correct the error.
+When KeySentry detects an error, it allows up to 10 additional keystrokes before requiring correction. This gives you natural typing flow while ensuring mistakes don't compound indefinitely.
 
-### Analytics
-TypeTester tracks comprehensive metrics:
-- Words per minute (WPM) and accuracy
+### Analytics Engine
+KeySentry captures detailed metrics about your typing behavior:
+- Words per minute (WPM) and accuracy percentages
 - Keystroke latency and rhythm patterns
-- Error distribution and correction times
-- Hesitation patterns (long pauses, punctuation delays, etc.)
-- Weakness analysis (slow digraphs, problematic transitions)
-- Finger load distribution (QWERTY layout analysis)
+- Error distribution and correction response times
+- Hesitation patterns including long pauses and punctuation delays
+- Weakness analysis identifying slow digraphs and problematic transitions
+- Finger load distribution across the QWERTY layout
 
 ### Session Reports
 Each session generates a detailed JSON report containing:
@@ -106,10 +132,23 @@ Each session generates a detailed JSON report containing:
 - **Esc**: Return to text selection
 - **q**: Quit application
 
-## File Outputs
+## What You Get
 
-- **Session reports**: JSON files with complete analytics
-- **HTML viewer**: Open `stats_viewer.html` in a browser to visualize JSON reports
+**Instant Insights**
+- Real-time visual feedback showing your typing DNA
+- Live hesitation detection as you type
+- Error classification that explains why you make mistakes
+
+**Deep Analytics Export**
+- Complete JSON reports with every keystroke analyzed
+- Beautiful HTML visualizer (`stats_viewer.html`) for your data
+- Shareable charts showing your unique patterns
+
+**The "Aha!" Moments**
+- "I never knew I hesitate before the letter 'q'"
+- "My left pinky is way weaker than I thought"
+- "I type 20% faster after coffee"
+- "I stumble on the same 3 letter combinations every time"
 
 ## Development
 
@@ -135,18 +174,24 @@ Key components:
 - `App`: State management for UI modes (TextSelection → Typing → ShowingReport)
 - Analytics engine: Real-time calculation of metrics and patterns
 
-## Contributing
+## Share Your Discoveries
 
-Contributions are welcome! Please:
-1. Fork the repository
-2. Create a feature branch
-3. Follow the existing code style (run `cargo fmt`)
-4. Add tests for new functionality
-5. Submit a pull request
+Found something cool about your typing patterns? KeySentry makes it easy to share:
 
-## License
+```bash
+# Export your session data
+# Press 'e' in the report view to generate JSON
 
-[Add your preferred license here]
+# Open the beautiful HTML visualizer
+open stats_viewer.html
+```
+
+**Community Challenges:**
+- Post your "weirdest typing habit" discovery
+- Share your before/after improvement screenshots
+- Compare finger usage patterns with friends
+- See who can master Inception Mode fastest
+
 
 ## Acknowledgments
 
