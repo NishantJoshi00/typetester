@@ -13,6 +13,7 @@ use ratatui::{
 };
 use serde::{Deserialize, Serialize};
 use chrono;
+use clap::{Parser, Subcommand};
 use std::{
     collections::HashMap,
     fs,
@@ -20,6 +21,40 @@ use std::{
     path::{Path, PathBuf},
     time::{Duration, Instant},
 };
+
+#[derive(Parser)]
+#[command(name = "typetester")]
+#[command(about = "A terminal typing tester with advanced analytics")]
+#[command(version = "0.1.0")]
+struct Cli {
+    #[command(subcommand)]
+    command: Option<Commands>,
+
+    /// Load a specific file for typing practice
+    #[arg(short, long, value_name = "FILE")]
+    file: Option<PathBuf>,
+
+    /// Use the project's own source code for typing practice (inception mode!)
+    #[arg(long)]
+    inception: bool,
+
+    /// Size of the text chunk to practice with
+    #[arg(short, long, value_enum, default_value = "medium")]
+    size: ChunkSize,
+}
+
+#[derive(clap::ValueEnum, Clone, Debug)]
+enum ChunkSize {
+    Small,  // ~20-40 lines or 800-1600 characters
+    Medium, // ~40-80 lines or 1600-3200 characters
+    Large,  // ~80-120 lines or 3200-4800 characters
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Start typing test with file browser (default mode)
+    Browse,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum ErrorType {
@@ -106,7 +141,6 @@ pub struct SessionReport {
 
 #[derive(PartialEq)]
 enum AppState {
-    TextSelection,
     Typing,
     ShowingReport,
 }
@@ -117,27 +151,6 @@ enum ReportView {
     Analysis,
 }
 
-#[derive(Debug, Clone)]
-struct TextFile {
-    name: String,
-    #[allow(dead_code)]
-    path: PathBuf,
-    content: String,
-}
-
-#[derive(Debug, Clone)]
-struct TextCategory {
-    name: String,
-    #[allow(dead_code)]
-    path: PathBuf,
-    files: Vec<TextFile>,
-}
-
-struct TextLibrary {
-    categories: Vec<TextCategory>,
-    selected_category: usize,
-    selected_file: usize,
-}
 
 pub struct TypingSession {
     target_text: String,
@@ -217,6 +230,18 @@ impl TypingSession {
                     self.has_error = false;
                     self.consecutive_errors = 0;
                     self.current_position += 1;
+
+                    // Clear the error stack by truncating user_input to match current_position
+                    // This removes all the incorrect characters that were in the error buffer
+                    let target_chars: Vec<char> = self.target_text.chars().collect();
+                    let mut corrected_input = String::new();
+                    for i in 0..self.current_position {
+                        if let Some(ch) = target_chars.get(i) {
+                            corrected_input.push(*ch);
+                        }
+                    }
+                    self.user_input = corrected_input;
+
                     if self.current_position >= self.target_text.len() {
                         self.session_end = Some(now);
                     }
@@ -402,68 +427,151 @@ impl TypingSession {
         }
     }
 
-    pub fn generate_styled_text(&self) -> Line<'static> {
-        let mut spans = Vec::new();
+    pub fn generate_styled_text(&self) -> Vec<Line<'static>> {
         let target_chars: Vec<char> = self.target_text.chars().collect();
         let user_chars: Vec<char> = self.user_input.chars().collect();
-        
+
+        let mut lines = Vec::new();
+        let mut current_line_spans = Vec::new();
+
         // Display correctly typed characters in green
         for i in 0..self.current_position.min(target_chars.len()) {
-            if i == self.current_position - 1 && !self.has_error && !self.is_frozen {
-                // Last correctly typed character with cursor - green with underline
-                spans.push(Span::styled(
-                    target_chars[i].to_string(),
-                    Style::default().fg(Color::Green).add_modifier(Modifier::UNDERLINED).add_modifier(Modifier::BOLD)
-                ));
-            } else {
-                // Other correctly typed characters - green
-                spans.push(Span::styled(
-                    target_chars[i].to_string(),
-                    Style::default().fg(Color::Green)
-                ));
-            }
-        }
-        
-        // Display error buffer (incorrect characters typed beyond correct position)
-        if self.has_error && user_chars.len() > self.current_position {
-            for i in self.current_position..user_chars.len().min(self.current_position + 10) {
-                let user_char = user_chars[i];
-                if i == user_chars.len() - 1 {
-                    // Last error character gets underline cursor
-                    spans.push(Span::styled(
-                        user_char.to_string(),
-                        Style::default().bg(Color::Red).fg(Color::White).add_modifier(Modifier::BOLD).add_modifier(Modifier::UNDERLINED)
+            let ch = target_chars[i];
+
+            if ch == '\n' {
+                // End current line and start a new one
+                lines.push(Line::from(current_line_spans.clone()));
+                current_line_spans.clear();
+            } else if ch == '\t' {
+                // Convert tab to 4 spaces
+                let display_text = "    "; // 4 spaces
+                if i == self.current_position - 1 && !self.has_error && !self.is_frozen {
+                    // Last correctly typed character with cursor - green with underline
+                    current_line_spans.push(Span::styled(
+                        display_text.to_string(),
+                        Style::default().fg(Color::Green).add_modifier(Modifier::UNDERLINED).add_modifier(Modifier::BOLD)
                     ));
                 } else {
-                    spans.push(Span::styled(
-                        user_char.to_string(),
-                        Style::default().bg(Color::Red).fg(Color::White).add_modifier(Modifier::BOLD)
+                    // Other correctly typed characters - green
+                    current_line_spans.push(Span::styled(
+                        display_text.to_string(),
+                        Style::default().fg(Color::Green)
+                    ));
+                }
+            } else {
+                if i == self.current_position - 1 && !self.has_error && !self.is_frozen {
+                    // Last correctly typed character with cursor - green with underline
+                    current_line_spans.push(Span::styled(
+                        ch.to_string(),
+                        Style::default().fg(Color::Green).add_modifier(Modifier::UNDERLINED).add_modifier(Modifier::BOLD)
+                    ));
+                } else {
+                    // Other correctly typed characters - green
+                    current_line_spans.push(Span::styled(
+                        ch.to_string(),
+                        Style::default().fg(Color::Green)
                     ));
                 }
             }
         }
-        
+
+        // Display error buffer (incorrect characters typed beyond correct position)
+        if self.has_error && user_chars.len() > self.current_position {
+            // Only show the actual incorrect characters that were typed beyond the correct position
+            // We should display from current_position to user_chars.len(), but skip if the character
+            // at current_position in user_input matches the expected character
+            let error_start = self.current_position;
+            let mut chars_to_show = Vec::new();
+
+            // Collect only the actual error characters
+            for i in error_start..user_chars.len().min(error_start + 10) {
+                let user_char = user_chars[i];
+                let expected_char_at_pos = self.target_text.chars().nth(i);
+
+                // Only include characters that don't match what's expected at their position
+                if Some(user_char) != expected_char_at_pos {
+                    chars_to_show.push((i, user_char));
+                }
+            }
+
+            // Display the error characters
+            for (idx, (_i, user_char)) in chars_to_show.iter().enumerate() {
+                if *user_char == '\n' {
+                    // Handle newlines in error buffer
+                    lines.push(Line::from(current_line_spans.clone()));
+                    current_line_spans.clear();
+                } else if *user_char == '\t' {
+                    // Convert tab to 4 spaces in error display
+                    let display_text = "    "; // 4 spaces
+                    if idx == chars_to_show.len() - 1 {
+                        // Last error character gets underline cursor
+                        current_line_spans.push(Span::styled(
+                            display_text.to_string(),
+                            Style::default().bg(Color::Red).fg(Color::White).add_modifier(Modifier::BOLD).add_modifier(Modifier::UNDERLINED)
+                        ));
+                    } else {
+                        current_line_spans.push(Span::styled(
+                            display_text.to_string(),
+                            Style::default().bg(Color::Red).fg(Color::White).add_modifier(Modifier::BOLD)
+                        ));
+                    }
+                } else {
+                    if idx == chars_to_show.len() - 1 {
+                        // Last error character gets underline cursor
+                        current_line_spans.push(Span::styled(
+                            user_char.to_string(),
+                            Style::default().bg(Color::Red).fg(Color::White).add_modifier(Modifier::BOLD).add_modifier(Modifier::UNDERLINED)
+                        ));
+                    } else {
+                        current_line_spans.push(Span::styled(
+                            user_char.to_string(),
+                            Style::default().bg(Color::Red).fg(Color::White).add_modifier(Modifier::BOLD)
+                        ));
+                    }
+                }
+            }
+        }
+
         // Display remaining target text in gray
-        let start_pos = if self.has_error { 
+        let start_pos = if self.has_error {
             (self.current_position + self.consecutive_errors).min(target_chars.len())
         } else {
             self.current_position
         };
-        
+
         for i in start_pos..target_chars.len() {
-            spans.push(Span::styled(
-                target_chars[i].to_string(),
-                Style::default().fg(Color::DarkGray)
-            ));
+            let ch = target_chars[i];
+
+            if ch == '\n' {
+                lines.push(Line::from(current_line_spans.clone()));
+                current_line_spans.clear();
+            } else if ch == '\t' {
+                // Convert tab to 4 spaces in remaining text
+                current_line_spans.push(Span::styled(
+                    "    ".to_string(), // 4 spaces
+                    Style::default().fg(Color::DarkGray)
+                ));
+            } else {
+                current_line_spans.push(Span::styled(
+                    ch.to_string(),
+                    Style::default().fg(Color::DarkGray)
+                ));
+            }
         }
-        
+
         // Add cursor at the end if we've typed everything without errors
         if self.current_position >= target_chars.len() && !self.has_error {
-            spans.push(Span::styled("|".to_string(), 
+            current_line_spans.push(Span::styled("|".to_string(),
                 Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)));
         }
-        
-        Line::from(spans)
+
+        // Add the final line if it has content
+        if !current_line_spans.is_empty() {
+            lines.push(Line::from(current_line_spans));
+        }
+
+
+        lines
     }
 
     pub fn generate_report(&self) -> SessionReport {
@@ -671,149 +779,351 @@ impl TypingSession {
     }
 }
 
+#[derive(Debug, Clone)]
+enum TextSource {
+    File(String, String), // (filename, content)
+    Inception(String),    // source code content
+}
+
 struct App {
     session: Option<TypingSession>,
-    text_library: TextLibrary,
+    text_source: TextSource,
     should_quit: bool,
     state: AppState,
     report_view: ReportView,
 }
 
-impl TextLibrary {
-    fn new() -> io::Result<Self> {
-        let mut categories = Vec::new();
-        let texts_dir = Path::new("texts");
-        
-        if texts_dir.exists() {
-            for entry in fs::read_dir(texts_dir)? {
-                let entry = entry?;
-                let path = entry.path();
-                
-                if path.is_dir() {
-                    let category_name = path.file_name()
-                        .and_then(|n| n.to_str())
-                        .unwrap_or("Unknown")
-                        .to_string();
-                    
-                    let mut files = Vec::new();
-                    
-                    for file_entry in fs::read_dir(&path)? {
-                        let file_entry = file_entry?;
-                        let file_path = file_entry.path();
-                        
-                        if file_path.extension().and_then(|e| e.to_str()) == Some("txt") {
-                            let file_name = file_path.file_stem()
-                                .and_then(|n| n.to_str())
-                                .unwrap_or("Unknown")
-                                .replace('_', " ")
-                                .split(' ')
-                                .map(|word| {
-                                    let mut chars = word.chars();
-                                    match chars.next() {
-                                        None => String::new(),
-                                        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
-                                    }
-                                })
-                                .collect::<Vec<_>>()
-                                .join(" ");
-                            
-                            if let Ok(content) = fs::read_to_string(&file_path) {
-                                files.push(TextFile {
-                                    name: file_name,
-                                    path: file_path,
-                                    content: content.trim().to_string(),
-                                });
-                            }
-                        }
-                    }
-                    
-                    if !files.is_empty() {
-                        categories.push(TextCategory {
-                            name: category_name.replace('_', " ").split(' ')
-                                .map(|word| {
-                                    let mut chars = word.chars();
-                                    match chars.next() {
-                                        None => String::new(),
-                                        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
-                                    }
-                                })
-                                .collect::<Vec<_>>()
-                                .join(" "),
-                            path,
-                            files,
-                        });
-                    }
-                }
-            }
-        }
-        
-        Ok(Self {
-            categories,
-            selected_category: 0,
-            selected_file: 0,
-        })
-    }
-    
-    fn get_selected_text(&self) -> Option<&TextFile> {
-        self.categories
-            .get(self.selected_category)
-            .and_then(|cat| cat.files.get(self.selected_file))
-    }
-    
-    fn next_category(&mut self) {
-        if !self.categories.is_empty() {
-            self.selected_category = (self.selected_category + 1) % self.categories.len();
-            self.selected_file = 0;
+impl ChunkSize {
+    fn get_char_range(&self) -> (usize, usize) {
+        match self {
+            ChunkSize::Small => (800, 1600),
+            ChunkSize::Medium => (1600, 3200),
+            ChunkSize::Large => (3200, 4800),
         }
     }
-    
-    fn prev_category(&mut self) {
-        if !self.categories.is_empty() {
-            self.selected_category = if self.selected_category == 0 {
-                self.categories.len() - 1
-            } else {
-                self.selected_category - 1
-            };
-            self.selected_file = 0;
-        }
-    }
-    
-    fn next_file(&mut self) {
-        if let Some(category) = self.categories.get(self.selected_category) {
-            if !category.files.is_empty() {
-                self.selected_file = (self.selected_file + 1) % category.files.len();
-            }
-        }
-    }
-    
-    fn prev_file(&mut self) {
-        if let Some(category) = self.categories.get(self.selected_category) {
-            if !category.files.is_empty() {
-                self.selected_file = if self.selected_file == 0 {
-                    category.files.len() - 1
-                } else {
-                    self.selected_file - 1
-                };
-            }
+
+    fn get_line_range(&self) -> (usize, usize) {
+        match self {
+            ChunkSize::Small => (20, 40),
+            ChunkSize::Medium => (40, 80),
+            ChunkSize::Large => (80, 120),
         }
     }
 }
 
+#[derive(Debug)]
+struct TextParagraph {
+    content: String,
+    char_count: usize,
+    score: f32,
+}
+
+impl TextSource {
+    fn load_from_file(path: &Path, size: ChunkSize) -> io::Result<Self> {
+        let content = fs::read_to_string(path)?;
+        let filename = path.file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("unknown")
+            .to_string();
+
+        let processed_content = Self::extract_file_snippet(&content, &filename, size);
+        Ok(TextSource::File(filename, processed_content))
+    }
+
+    fn extract_file_snippet(content: &str, filename: &str, size: ChunkSize) -> String {
+        let (target_min_chars, target_max_chars) = size.get_char_range();
+
+        // Find all meaningful paragraphs/sections
+        let mut paragraphs = Self::find_paragraphs(content, filename);
+
+        // Score paragraphs strategically (higher score = better for typing practice)
+        for paragraph in &mut paragraphs {
+            paragraph.score = Self::calculate_paragraph_score(&paragraph.content, filename);
+        }
+
+        // Sort by score (best first) then randomize within score tiers
+        paragraphs.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap());
+
+        // Filter paragraphs that fit within the size constraints
+        let suitable_paragraphs: Vec<_> = paragraphs.iter()
+            .filter(|p| p.char_count >= target_min_chars && p.char_count <= target_max_chars)
+            .collect();
+
+        // If we have suitable paragraphs, pick strategically with randomness
+        if !suitable_paragraphs.is_empty() {
+            let selected = Self::select_strategic_paragraph(&suitable_paragraphs);
+
+            return selected.content.trim().to_string();
+        }
+
+        // If no perfect fit, find the best-scoring paragraph that's still meaningful
+        let acceptable_paragraphs: Vec<_> = paragraphs.iter()
+            .filter(|p| p.char_count >= target_min_chars / 2) // At least half the target
+            .collect();
+
+        if !acceptable_paragraphs.is_empty() {
+            let selected = Self::select_strategic_paragraph(&acceptable_paragraphs);
+
+            return selected.content.trim().to_string();
+        }
+
+        // Fallback: create a chunk of the target size from the middle of the file
+        let lines: Vec<&str> = content.lines().collect();
+        let (_target_lines_min, target_lines_max) = size.get_line_range();
+        let start_idx = lines.len() / 3; // Start from 1/3 into the file
+        let end_idx = (start_idx + target_lines_max).min(lines.len());
+        let snippet_lines = &lines[start_idx..end_idx];
+        let content_str = snippet_lines.join("\n");
+
+        content_str.trim().to_string()
+    }
+
+    fn find_paragraphs(content: &str, filename: &str) -> Vec<TextParagraph> {
+        let lines: Vec<&str> = content.lines().collect();
+        let mut paragraphs = Vec::new();
+
+        // For code files, find function/struct/impl blocks
+        if filename.ends_with(".rs") || filename.ends_with(".py") ||
+           filename.ends_with(".js") || filename.ends_with(".ts") ||
+           filename.ends_with(".cpp") || filename.ends_with(".c") ||
+           filename.ends_with(".java") || filename.ends_with(".go") {
+
+            let mut current_start = 0;
+            let mut brace_depth = 0;
+            let mut in_block = false;
+
+            for (i, line) in lines.iter().enumerate() {
+                let trimmed = line.trim();
+
+                // Detect start of code blocks
+                if (trimmed.starts_with("fn ") || trimmed.starts_with("pub fn ") ||
+                    trimmed.starts_with("struct ") || trimmed.starts_with("impl ") ||
+                    trimmed.starts_with("enum ") || trimmed.starts_with("class ") ||
+                    trimmed.starts_with("def ") || trimmed.starts_with("function ")) &&
+                   brace_depth == 0 {
+                    current_start = i;
+                    in_block = true;
+                }
+
+                // Track braces
+                brace_depth += line.matches('{').count() as i32;
+                brace_depth -= line.matches('}').count() as i32;
+
+                // End of block
+                if in_block && brace_depth == 0 && line.contains('}') {
+                    let block_lines = &lines[current_start..=i];
+                    let content = block_lines.join("\n");
+                    if content.len() > 200 { // Only meaningful blocks
+                        paragraphs.push(TextParagraph {
+                            content,
+                            char_count: block_lines.join("\n").len(),
+                            score: 0.0, // Will be calculated later
+                        });
+                    }
+                    in_block = false;
+                }
+            }
+        } else {
+            // For text files, split by double newlines (paragraphs)
+            let content_str = content.to_string();
+
+            for paragraph_text in content_str.split("\n\n") {
+                if paragraph_text.trim().len() > 100 { // Only meaningful paragraphs
+                    paragraphs.push(TextParagraph {
+                        content: paragraph_text.to_string(),
+                        char_count: paragraph_text.len(),
+                        score: 0.0, // Will be calculated later
+                    });
+                }
+            }
+        }
+
+        paragraphs
+    }
+
+    fn calculate_paragraph_score(content: &str, filename: &str) -> f32 {
+        let mut score = 0.0f32;
+
+        // Base score from content length (sweet spot around 100-200 chars per complexity)
+        let len = content.len() as f32;
+        score += if len > 50.0 && len < 500.0 { 10.0 } else { 5.0 };
+
+        // Bonus for diverse character usage (good for typing practice)
+        let unique_chars = content.chars().collect::<std::collections::HashSet<_>>().len() as f32;
+        score += unique_chars * 0.5;
+
+        // Code-specific scoring
+        if filename.ends_with(".rs") || filename.ends_with(".py") ||
+           filename.ends_with(".js") || filename.ends_with(".ts") ||
+           filename.ends_with(".cpp") || filename.ends_with(".java") {
+
+            // Bonus for function implementations (good typing practice)
+            if content.contains("fn ") || content.contains("function ") || content.contains("def ") {
+                score += 15.0;
+            }
+
+            // Bonus for control structures (interesting patterns)
+            if content.contains("if ") || content.contains("for ") || content.contains("while ") ||
+               content.contains("match ") || content.contains("switch ") {
+                score += 10.0;
+            }
+
+            // Bonus for data structures
+            if content.contains("struct ") || content.contains("class ") || content.contains("enum ") {
+                score += 12.0;
+            }
+
+            // Bonus for error handling (challenging typing)
+            if content.contains("Result") || content.contains("Option") || content.contains("Error") ||
+               content.contains("try") || content.contains("catch") || content.contains("except") {
+                score += 8.0;
+            }
+
+            // Bonus for generics and advanced syntax (very good practice)
+            if content.contains('<') && content.contains('>') || content.contains("impl ") {
+                score += 12.0;
+            }
+
+            // Penalty for mostly comments or too simple
+            let comment_ratio = content.lines()
+                .filter(|line| line.trim().starts_with("//") || line.trim().starts_with("/*") || line.trim().starts_with("#"))
+                .count() as f32 / content.lines().count().max(1) as f32;
+            score -= comment_ratio * 10.0;
+
+            // Penalty for too many imports/includes (boring)
+            if content.contains("import ") || content.contains("use ") || content.contains("#include") {
+                let import_lines = content.lines()
+                    .filter(|line| line.contains("import ") || line.contains("use ") || line.contains("#include"))
+                    .count();
+                if import_lines > 3 {
+                    score -= 5.0;
+                }
+            }
+
+        } else {
+            // Text file scoring
+            let word_count = content.split_whitespace().count() as f32;
+
+            // Bonus for good paragraph length
+            if word_count > 20.0 && word_count < 150.0 {
+                score += 10.0;
+            }
+
+            // Bonus for punctuation variety (good typing practice)
+            let punct_chars = content.chars()
+                .filter(|c| ".,;:!?\"'()-[]{}".contains(*c))
+                .count() as f32;
+            score += punct_chars * 0.3;
+
+            // Bonus for sentences (complete thoughts)
+            let sentence_count = content.matches(|c| ".!?".contains(c)).count() as f32;
+            score += sentence_count * 2.0;
+        }
+
+        // Avoid very short or very long content
+        if len < 100.0 {
+            score -= 5.0;
+        }
+        if len > 1000.0 {
+            score -= 3.0;
+        }
+
+        // Ensure non-negative score
+        score.max(0.0)
+    }
+
+    fn select_strategic_paragraph<'a>(paragraphs: &'a [&'a TextParagraph]) -> &'a TextParagraph {
+        use rand::seq::SliceRandom;
+        use rand::thread_rng;
+
+        paragraphs.choose(&mut thread_rng()).unwrap()
+    }
+
+    fn load_inception(size: ChunkSize) -> io::Result<Self> {
+        // Include the source code directly at compile time
+        let full_content = include_str!("main.rs");
+
+        // Split into meaningful code sections and select one based on size
+        let snippet = Self::extract_code_section(full_content, size);
+        Ok(TextSource::Inception(snippet))
+    }
+
+    fn extract_code_section(content: &str, size: ChunkSize) -> String {
+        let (target_min_chars, target_max_chars) = size.get_char_range();
+
+        // Use the same strategic paragraph logic for the source code
+        let mut paragraphs = Self::find_paragraphs(content, "main.rs");
+
+        // Score paragraphs strategically (higher score = better for typing practice)
+        for paragraph in &mut paragraphs {
+            paragraph.score = Self::calculate_paragraph_score(&paragraph.content, "main.rs");
+        }
+
+        // Sort by score (best first)
+        paragraphs.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap());
+
+        // Filter paragraphs that fit the size requirement
+        let suitable_paragraphs: Vec<_> = paragraphs.iter()
+            .filter(|p| p.char_count >= target_min_chars && p.char_count <= target_max_chars)
+            .collect();
+
+        if !suitable_paragraphs.is_empty() {
+            let selected = Self::select_strategic_paragraph(&suitable_paragraphs);
+            return selected.content.trim().to_string();
+        }
+
+        // If no perfect fit, find the best available paragraph
+        let acceptable_paragraphs: Vec<_> = paragraphs.iter()
+            .filter(|p| p.char_count >= target_min_chars / 2)
+            .collect();
+
+        if !acceptable_paragraphs.is_empty() {
+            let selected = Self::select_strategic_paragraph(&acceptable_paragraphs);
+            return selected.content.trim().to_string();
+        }
+
+        // Fallback: use a chunk from the beginning
+        let lines: Vec<&str> = content.lines().collect();
+        let (_, target_max_lines) = size.get_line_range();
+        let end = target_max_lines.min(lines.len());
+        let content_str = lines[0..end].join("\n");
+
+        content_str.trim().to_string()
+    }
+
+    fn get_content(&self) -> Option<(String, String)> {
+        match self {
+            TextSource::File(name, content) => {
+                Some((name.clone(), content.clone()))
+            }
+            TextSource::Inception(content) => {
+                Some(("main.rs (INCEPTION MODE)".to_string(), content.clone()))
+            }
+        }
+    }
+
+}
+
+
 impl App {
-    fn new() -> io::Result<Self> {
-        let text_library = TextLibrary::new()?;
-        Ok(Self {
+    fn new(text_source: TextSource) -> io::Result<Self> {
+        let mut app = Self {
             session: None,
-            text_library,
+            text_source,
             should_quit: false,
-            state: AppState::TextSelection,
+            state: AppState::Typing,
             report_view: ReportView::Charts,
-        })
+        };
+
+        // Immediately start typing session
+        app.start_typing_session();
+
+        Ok(app)
     }
     
     fn start_typing_session(&mut self) {
-        if let Some(text_file) = self.text_library.get_selected_text() {
-            self.session = Some(TypingSession::new(text_file.content.clone()));
+        if let Some((_, content)) = self.text_source.get_content() {
+            self.session = Some(TypingSession::new(content));
             self.state = AppState::Typing;
         }
     }
@@ -821,37 +1131,32 @@ impl App {
     fn handle_event(&mut self, event: Event) -> io::Result<()> {
         if let Event::Key(key) = event {
             match self.state {
-                AppState::TextSelection => {
-                    match key.code {
-                        KeyCode::Char('q') | KeyCode::Char('Q') | KeyCode::Esc => {
-                            self.should_quit = true;
-                        }
-                        KeyCode::Up => {
-                            self.text_library.prev_category();
-                        }
-                        KeyCode::Down => {
-                            self.text_library.next_category();
-                        }
-                        KeyCode::Left => {
-                            self.text_library.prev_file();
-                        }
-                        KeyCode::Right => {
-                            self.text_library.next_file();
-                        }
-                        KeyCode::Enter => {
-                            self.start_typing_session();
-                        }
-                        _ => {}
-                    }
-                }
                 AppState::Typing => {
                     if let Some(session) = &mut self.session {
                         match key.code {
                             KeyCode::Char('q') if key.modifiers.contains(event::KeyModifiers::CONTROL) => {
-                                self.state = AppState::TextSelection;
+                                self.should_quit = true;
                             }
                             KeyCode::Char(c) => {
                                 session.handle_key(c);
+                                if session.is_complete() {
+                                    self.state = AppState::ShowingReport;
+                                }
+                            }
+                            KeyCode::Enter => {
+                                session.handle_key('\n');
+                                if session.is_complete() {
+                                    self.state = AppState::ShowingReport;
+                                }
+                            }
+                            KeyCode::Tab => {
+                                // Send 4 individual space characters for tab
+                                for _ in 0..4 {
+                                    session.handle_key(' ');
+                                    if session.is_complete() {
+                                        break;
+                                    }
+                                }
                                 if session.is_complete() {
                                     self.state = AppState::ShowingReport;
                                 }
@@ -866,7 +1171,7 @@ impl App {
                 AppState::ShowingReport => {
                     match key.code {
                         KeyCode::Char('q') | KeyCode::Char('Q') | KeyCode::Esc => {
-                            self.state = AppState::TextSelection;
+                            self.should_quit = true;
                         }
                         KeyCode::Char('e') => {
                             self.export_report()?;
@@ -906,60 +1211,6 @@ impl App {
     }
 }
 
-fn ui_text_selection(f: &mut Frame, app: &App) {
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .margin(2)
-        .constraints([
-            Constraint::Length(3),
-            Constraint::Min(1),
-            Constraint::Length(3),
-        ])
-        .split(f.area());
-
-    // Title
-    let title = Paragraph::new("Select Text to Type")
-        .alignment(Alignment::Center)
-        .style(Style::default().fg(Color::Green).add_modifier(Modifier::BOLD));
-    f.render_widget(title, chunks[0]);
-
-    // Categories and files
-    let mut content = Vec::new();
-    
-    for (cat_idx, category) in app.text_library.categories.iter().enumerate() {
-        let cat_style = if cat_idx == app.text_library.selected_category {
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(Color::White)
-        };
-        
-        content.push(Line::from(Span::styled(format!("[+] {}", category.name), cat_style)));
-        
-        if cat_idx == app.text_library.selected_category {
-            for (file_idx, file) in category.files.iter().enumerate() {
-                let file_style = if file_idx == app.text_library.selected_file {
-                    Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
-                } else {
-                    Style::default().fg(Color::DarkGray)
-                };
-                
-                let prefix = if file_idx == app.text_library.selected_file { "> " } else { "  " };
-                content.push(Line::from(Span::styled(format!("{}{}", prefix, file.name), file_style)));
-            }
-        }
-    }
-    
-    let selection = Paragraph::new(content)
-        .block(Block::default().title("Text Library").borders(Borders::ALL))
-        .wrap(Wrap { trim: false });
-    f.render_widget(selection, chunks[1]);
-
-    // Help
-    let help = Paragraph::new("Up/Down: Categories  Left/Right: Files  Enter: Start  Q: Quit")
-        .alignment(Alignment::Center)
-        .style(Style::default().fg(Color::DarkGray));
-    f.render_widget(help, chunks[2]);
-}
 
 fn ui_typing(f: &mut Frame, app: &App) {
     if let Some(session) = &app.session {
@@ -973,13 +1224,13 @@ fn ui_typing(f: &mut Frame, app: &App) {
             ])
             .split(f.area());
 
-        // Create horizontal layout for centering text in middle 50%
+        // Create horizontal layout for centering text in 80% width
         let horizontal_chunks = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([
-                Constraint::Percentage(25), // Left padding
-                Constraint::Percentage(50), // Text area (center 50%)
-                Constraint::Percentage(25), // Right padding
+                Constraint::Percentage(10), // Left padding
+                Constraint::Percentage(80), // Text area (center 80%)
+                Constraint::Percentage(10), // Right padding
             ])
             .split(chunks[0]);
 
@@ -987,11 +1238,11 @@ fn ui_typing(f: &mut Frame, app: &App) {
         let text_block = Block::default()
             .borders(Borders::NONE);
         
-        let styled_text = session.generate_styled_text();
-        let paragraph = Paragraph::new(styled_text)
+        let styled_lines = session.generate_styled_text();
+        let paragraph = Paragraph::new(styled_lines)
             .block(text_block)
             .wrap(Wrap { trim: false })
-            .alignment(Alignment::Center);
+            .alignment(Alignment::Left);
         
         f.render_widget(paragraph, horizontal_chunks[1]);
 
@@ -1462,18 +1713,31 @@ fn render_consolidated_analysis_view(f: &mut Frame, area: ratatui::layout::Rect,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let cli = Cli::parse();
+
+    // Determine the text source based on CLI arguments
+    let text_source = if cli.inception {
+        TextSource::load_inception(cli.size)?
+    } else if let Some(file_path) = cli.file {
+        TextSource::load_from_file(&file_path, cli.size)?
+    } else {
+        // Error: user must specify either --file or --inception
+        eprintln!("Error: You must specify either --file <path> or --inception");
+        eprintln!("Run with --help for usage information");
+        std::process::exit(1);
+    };
+
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let mut app = App::new()?;
+    let mut app = App::new(text_source)?;
 
     loop {
         terminal.draw(|f| {
             match app.state {
-                AppState::TextSelection => ui_text_selection(f, &app),
                 AppState::Typing => ui_typing(f, &app),
                 AppState::ShowingReport => ui_report(f, &app),
             }

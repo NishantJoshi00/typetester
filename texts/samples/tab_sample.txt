@@ -1,0 +1,7 @@
+This is a line with	tabs in	it.
+	Here is a line starting with a tab.
+Some code:
+	if (condition) {
+		doSomething();
+	}
+Mixed	tabs	and spaces work too.

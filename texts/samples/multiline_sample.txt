@@ -1,0 +1,6 @@
+This is line one of the sample.
+This is the second line with different content.
+Here's a third line to test proper newline handling.
+
+There was an empty line above this one.
+And this is the final line to complete our test.
