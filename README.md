@@ -198,3 +198,9 @@ open stats_viewer.html
 Built with the excellent Rust TUI ecosystem:
 - [ratatui](https://github.com/ratatui-org/ratatui) - Terminal UI framework
 - [crossterm](https://github.com/crossterm-rs/crossterm) - Cross-platform terminal library
+
+---
+
+<div align="center">
+Built by Human, Documented by LLM.
+</div>
